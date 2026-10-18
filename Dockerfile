@@ -1,16 +1,15 @@
 FROM python:3.11-slim
 
-RUN apt-get update && apt-get install -y ffmpeg && rm -rf /var/lib/apt/lists/*
-
 WORKDIR /app
+
+RUN apt-get update && apt-get install -y wget && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-RUN python -c "import nltk; nltk.download('averaged_perceptron_tagger_eng', quiet=True); nltk.download('averaged_perceptron_tagger', quiet=True)" && \
-    chmod -R 755 /root/nltk_data
-
-ENV NLTK_DATA=/root/nltk_data
+RUN mkdir -p models && \
+    wget -O models/id_ID-news_tts-medium.onnx "https://huggingface.co/rhasspy/piper-voices/resolve/main/id/id_ID/news_tts/medium/id_ID-news_tts-medium.onnx" && \
+    wget -O models/id_ID-news_tts-medium.onnx.json "https://huggingface.co/rhasspy/piper-voices/resolve/main/id/id_ID/news_tts/medium/id_ID-news_tts-medium.onnx.json"
 
 COPY . .
 

@@ -2,67 +2,31 @@ import os
 import uuid
 import time
 import threading
-import numpy as np
-import soundfile as sf
+import wave
 from flask import Flask, request, jsonify, send_from_directory
-from huggingface_hub import hf_hub_download
-import onnxruntime as ort
-from ttstokenizer import IPATokenizer
-import json
-import nltk
-
-for res in ("averaged_perceptron_tagger_eng", "averaged_perceptron_tagger"):
-    try:
-        nltk.data.find(f"taggers/{res}")
-    except LookupError:
-        try:
-            nltk.download(res, quiet=True)
-        except Exception as e:
-            print(f"[nltk] Failed to download {res}: {e}", flush=True)
+from piper import PiperVoice
 
 app = Flask(__name__)
 
 AUTHOR = "farel alfareza"
 AUDIO_EXPIRY_SECONDS = 3600
 VOICE_DIR = os.environ.get("VOICE_DIR", "./voice")
+MODEL_DIR = os.environ.get("MODEL_DIR", "./models")
 os.makedirs(VOICE_DIR, exist_ok=True)
+os.makedirs(MODEL_DIR, exist_ok=True)
 
-VOICE_MAP = {
-    "female": os.environ.get("FEMALE_VOICE", "af_bella"),
-    "male": os.environ.get("MALE_VOICE", "am_michael"),
-}
+# Path ke model Piper bahasa Indonesia
+MODEL_PATH = os.path.join(MODEL_DIR, "id_ID-news_tts-medium.onnx")
+CONFIG_PATH = os.path.join(MODEL_DIR, "id_ID-news_tts-medium.onnx.json")
 
-print("[startup] Downloading Kokoro ONNX model...", flush=True)
-model_path = hf_hub_download(
-    repo_id="NeuML/kokoro-int8-onnx",
-    filename="model.onnx"
-)
-voices_path = hf_hub_download(
-    repo_id="NeuML/kokoro-int8-onnx",
-    filename="voices.json"
-)
-print("[startup] Model downloaded.", flush=True)
-
-with open(voices_path, "r", encoding="utf-8") as f:
-    voices_data = json.load(f)
-
-session = ort.InferenceSession(model_path, providers=["CPUExecutionProvider"])
-tokenizer = IPATokenizer()
-print("[startup] ONNX session ready.", flush=True)
-
-
-def synthesize(text, voice_name, speed=1.0):
-    inputs = tokenizer(text)
-    speaker_key = voice_name.split("_")[0]
-    speaker = np.array(voices_data[speaker_key], dtype=np.float32)
-    style = speaker[len(inputs)]
-
-    outputs = session.run(None, {
-        "tokens": [[0, *inputs, 0]],
-        "style": style,
-        "speed": np.ones(1, dtype=np.float32) * speed
-    })
-    return outputs[0]
+# Muat model sekali saat startup
+print("[startup] Loading Piper voice model...", flush=True)
+try:
+    voice = PiperVoice.load(MODEL_PATH, config_path=CONFIG_PATH)
+    print("[startup] Piper voice loaded.", flush=True)
+except Exception as e:
+    print(f"[startup] Failed to load Piper voice: {e}", flush=True)
+    voice = None
 
 
 def cleanup_expired_audio():
@@ -93,22 +57,21 @@ def tts_api():
     if not text:
         return jsonify({"status": "error", "author": AUTHOR, "error": "Parameter text diperlukan"}), 400
 
-    if voice_type not in VOICE_MAP:
-        return jsonify({"status": "error", "author": AUTHOR, "error": "type harus female atau male"}), 400
-
-    voice_name = VOICE_MAP[voice_type]
+    if voice is None:
+        return jsonify({"status": "error", "author": AUTHOR, "error": "Model Piper belum dimuat"}), 500
 
     try:
-        audio = synthesize(text, voice_name)
         filename = f"{uuid.uuid4().hex}.wav"
         filepath = os.path.join(VOICE_DIR, filename)
-        sf.write(filepath, audio, 24000)
+
+        with wave.open(filepath, "wb") as wav_file:
+            voice.synthesize(text, wav_file)
 
         return jsonify({
             "status": "success",
             "author": AUTHOR,
             "type": voice_type,
-            "voice_used": voice_name,
+            "voice_used": "id_ID-news_tts-medium",
             "text": text,
             "voice_file": f"/voice/{filename}",
             "expires_in_seconds": AUDIO_EXPIRY_SECONDS,
@@ -135,8 +98,9 @@ def health():
     return jsonify({
         "status": "ok",
         "author": AUTHOR,
-        "engine": "kokoro-onnx",
-        "voices": VOICE_MAP
+        "engine": "piper",
+        "model_loaded": voice is not None,
+        "model": "id_ID-news_tts-medium"
     })
 
 

@@ -1,6 +1,2 @@
 flask
-onnxruntime
-numpy
-soundfile
-huggingface-hub
-ttstokenizer
+piper-tts
