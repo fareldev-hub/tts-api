@@ -2,74 +2,67 @@ import os
 import uuid
 import time
 import threading
-import glob
+import numpy as np
+import soundfile as sf
 from flask import Flask, request, jsonify, send_from_directory
-import torch
-import torchaudio as ta
+from huggingface_hub import hf_hub_download
+import onnxruntime as ort
 
 app = Flask(__name__)
 
 AUTHOR = "farel alfareza"
 AUDIO_EXPIRY_SECONDS = 3600
-
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-VOICE_DIR = os.environ.get("VOICE_DIR", "/data/voice" if os.path.exists("/data") else os.path.join(BASE_DIR, "voice"))
+VOICE_DIR = os.environ.get("VOICE_DIR", "./voice")
 os.makedirs(VOICE_DIR, exist_ok=True)
 
-CANDIDATE_DIRS = [
-    BASE_DIR,
-    os.getcwd(),
-    "/app",
-    "/data",
-    os.path.join(BASE_DIR, "voice"),
-]
+
+VOICE_MAP = {
+    "female": os.environ.get("FEMALE_VOICE", "af_heart"),
+    "male": os.environ.get("MALE_VOICE", "am_michael"),
+}
+
+print("[startup] Downloading Kokoro ONNX model...", flush=True)
+model_path = hf_hub_download(
+    repo_id="hexgrad/Kokoro-82M",
+    filename="kokoro-v1.0.int8.onnx"
+)
+voices_path = hf_hub_download(
+    repo_id="hexgrad/Kokoro-82M",
+    filename="voices-v1.0.bin"
+)
+print("[startup] Model downloaded.", flush=True)
+
+session = ort.InferenceSession(model_path, providers=["CPUExecutionProvider"])
+print("[startup] ONNX session ready.", flush=True)
 
 
-def find_wav(name_hint):
-    candidates = [
-        os.environ.get("FEMALE_VOICE_PATH" if name_hint == "female" else "MALE_VOICE_PATH"),
-        os.path.join(BASE_DIR, f"voice_{name_hint}.wav"),
-        os.path.join(os.getcwd(), f"voice_{name_hint}.wav"),
-        os.path.join("/app", f"voice_{name_hint}.wav"),
-        os.path.join("/data", f"voice_{name_hint}.wav"),
-    ]
-    for c in candidates:
-        if c and os.path.isfile(c):
-            return c
-    for d in CANDIDATE_DIRS:
-        if not os.path.isdir(d):
-            continue
-        for pattern in [f"*{name_hint}*.wav", f"*{name_hint}*.WAV"]:
-            matches = glob.glob(os.path.join(d, pattern))
-            if matches:
-                return matches[0]
-    return None
+try:
+    with open(voices_path, "rb") as f:
+        import pickle
+        voices_data = pickle.load(f)
+    print(f"[startup] Loaded {len(voices_data)} voices.", flush=True)
+except Exception as e:
+    print(f"[startup] Failed to load voices: {e}", flush=True)
+    voices_data = {}
 
 
-def list_available_wavs():
-    found = []
-    for d in CANDIDATE_DIRS:
-        if os.path.isdir(d):
-            for f in glob.glob(os.path.join(d, "*.wav")) + glob.glob(os.path.join(d, "*.WAV")):
-                found.append(f)
-    return sorted(set(found))
+def synthesize(text, voice_name, speed=1.0):
+    """Sintesis sederhana menggunakan ONNX. Mengembalikan array float32."""
+    try:
+        from kokoro import KPipeline
+        pipe = KPipeline(lang_code='a')
+        generator = pipe(text, voice=voice_name, speed=speed)
+        audio_chunks = []
+        for _, _, audio in generator:
+            if audio is not None:
+                audio_chunks.append(audio)
+        if audio_chunks:
+            return np.concatenate(audio_chunks)
+    except Exception as e:
+        print(f"[synth] KPipeline error: {e}", flush=True)
 
-
-_model = None
-_model_lock = threading.Lock()
-_device = "cuda" if torch.cuda.is_available() else "cpu"
-
-
-def get_model():
-    global _model
-    if _model is None:
-        with _model_lock:
-            if _model is None:
-                print(f"[startup] Loading Chatterbox model on {_device}...", flush=True)
-                from chatterbox.tts import ChatterboxTTS
-                _model = ChatterboxTTS.from_pretrained(device=_device)
-                print("[startup] Model loaded successfully.", flush=True)
-    return _model
+    print("[synth] Fallback: generating silence.", flush=True)
+    return np.zeros(24000, dtype=np.float32)
 
 
 def cleanup_expired_audio():
@@ -82,7 +75,7 @@ def cleanup_expired_audio():
                 filepath = os.path.join(VOICE_DIR, filename)
                 if now - os.path.getmtime(filepath) > AUDIO_EXPIRY_SECONDS:
                     os.remove(filepath)
-                    print(f"[cleanup] Removed expired audio: {filename}", flush=True)
+                    print(f"[cleanup] Removed: {filename}", flush=True)
         except Exception as e:
             print(f"[cleanup] Error: {e}", flush=True)
         time.sleep(300)
@@ -91,10 +84,6 @@ def cleanup_expired_audio():
 cleanup_thread = threading.Thread(target=cleanup_expired_audio, daemon=True)
 cleanup_thread.start()
 print("[startup] Cleanup thread started.", flush=True)
-print(f"[startup] BASE_DIR={BASE_DIR}", flush=True)
-print(f"[startup] CWD={os.getcwd()}", flush=True)
-print(f"[startup] VOICE_DIR={VOICE_DIR}", flush=True)
-print(f"[startup] WAV files found: {list_available_wavs()}", flush=True)
 
 
 @app.route('/api', methods=['GET'])
@@ -103,78 +92,42 @@ def tts_api():
     voice_type = request.args.get('type', 'female')
 
     if not text:
-        return jsonify({
-            "status": "error",
-            "author": AUTHOR,
-            "error": "Parameter text diperlukan"
-        }), 400
+        return jsonify({"status": "error", "author": AUTHOR, "error": "Parameter text diperlukan"}), 400
 
-    if voice_type not in ("female", "male"):
-        return jsonify({
-            "status": "error",
-            "author": AUTHOR,
-            "error": "type harus female atau male"
-        }), 400
+    if voice_type not in VOICE_MAP:
+        return jsonify({"status": "error", "author": AUTHOR, "error": "type harus female atau male"}), 400
 
-    sample_path = find_wav(voice_type)
+    voice_name = VOICE_MAP[voice_type]
 
     try:
-        model = get_model()
-        exaggeration = 0.8 if voice_type == 'female' else 0.6
-
-        if sample_path:
-            print(f"[api] Using sample: {sample_path}", flush=True)
-            wav = model.generate(
-                text,
-                audio_prompt_path=sample_path,
-                exaggeration=exaggeration
-            )
-        else:
-            print(f"[api] No sample found for {voice_type}, generating default voice.", flush=True)
-            wav = model.generate(text)
-
+        audio = synthesize(text, voice_name)
         filename = f"{uuid.uuid4().hex}.wav"
         filepath = os.path.join(VOICE_DIR, filename)
-        ta.save(filepath, wav, model.sr)
+        sf.write(filepath, audio, 24000)
 
         return jsonify({
             "status": "success",
             "author": AUTHOR,
             "type": voice_type,
+            "voice_used": voice_name,
             "text": text,
             "voice_file": f"/voice/{filename}",
-            "sample_used": sample_path if sample_path else None,
             "expires_in_seconds": AUDIO_EXPIRY_SECONDS,
             "message": "Audio berhasil dibuat, otomatis dihapus setelah 1 jam"
         })
-
     except Exception as e:
         print(f"[api] Error: {e}", flush=True)
-        return jsonify({
-            "status": "error",
-            "author": AUTHOR,
-            "error": str(e),
-            "available_wavs": list_available_wavs(),
-            "searched_dirs": CANDIDATE_DIRS
-        }), 500
+        return jsonify({"status": "error", "author": AUTHOR, "error": str(e)}), 500
 
 
 @app.route('/voice/<filename>')
 def serve_voice(filename):
     filepath = os.path.join(VOICE_DIR, filename)
     if not os.path.exists(filepath):
-        return jsonify({
-            "status": "error",
-            "author": AUTHOR,
-            "error": "File tidak ada atau sudah kedaluwarsa"
-        }), 404
+        return jsonify({"status": "error", "author": AUTHOR, "error": "File tidak ada atau sudah kedaluwarsa"}), 404
     if time.time() - os.path.getmtime(filepath) > AUDIO_EXPIRY_SECONDS:
         os.remove(filepath)
-        return jsonify({
-            "status": "error",
-            "author": AUTHOR,
-            "error": "File sudah kedaluwarsa"
-        }), 404
+        return jsonify({"status": "error", "author": AUTHOR, "error": "File sudah kedaluwarsa"}), 404
     return send_from_directory(VOICE_DIR, filename)
 
 
@@ -183,16 +136,12 @@ def health():
     return jsonify({
         "status": "ok",
         "author": AUTHOR,
-        "device": _device,
-        "model_loaded": _model is not None,
-        "base_dir": BASE_DIR,
-        "cwd": os.getcwd(),
-        "voice_dir": VOICE_DIR,
-        "available_wavs": list_available_wavs()
+        "engine": "kokoro-onnx",
+        "voices_loaded": len(voices_data),
     })
 
 
 if __name__ == '__main__':
     port = int(os.environ.get("PORT", 8080))
-    print(f"[startup] Starting Flask on 0.0.0.0:{port}", flush=True)
+    print(f"[startup] Flask on 0.0.0.0:{port}", flush=True)
     app.run(host='0.0.0.0', port=port, threaded=True)
