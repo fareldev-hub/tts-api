@@ -15,11 +15,9 @@ MODEL_DIR = os.environ.get("MODEL_DIR", "./models")
 os.makedirs(VOICE_DIR, exist_ok=True)
 os.makedirs(MODEL_DIR, exist_ok=True)
 
-# Path ke model Piper bahasa Indonesia
 MODEL_PATH = os.path.join(MODEL_DIR, "id_ID-news_tts-medium.onnx")
 CONFIG_PATH = os.path.join(MODEL_DIR, "id_ID-news_tts-medium.onnx.json")
 
-# Muat model sekali saat startup
 print("[startup] Loading Piper voice model...", flush=True)
 try:
     voice = PiperVoice.load(MODEL_PATH, config_path=CONFIG_PATH)
@@ -65,7 +63,7 @@ def tts_api():
         filepath = os.path.join(VOICE_DIR, filename)
 
         with wave.open(filepath, "wb") as wav_file:
-            voice.synthesize(text, wav_file)
+            voice.synthesize_wav(text, wav_file)
 
         return jsonify({
             "status": "success",
