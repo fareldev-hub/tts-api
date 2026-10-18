@@ -37,7 +37,7 @@ API Text-to-Speech sederhana berbasis Flask dan Piper TTS, mendukung suara pria 
 ```bash
 pip install modal
 modal setup
-modal deploy modal_moss.py
+modal deploy model.py
 ```
 ---
 
