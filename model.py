@@ -2,7 +2,7 @@ import modal
 import io
 import base64
 
-app = modal.App("chatterbox-multilingual-tts")
+app = modal.App("chatterbox-multilingual-cpu")
 
 image = (
     modal.Image.debian_slim(python_version="3.11")
@@ -20,7 +20,8 @@ hf_cache = modal.Volume.from_name("chatterbox-cache", create_if_missing=True)
 
 @app.cls(
     image=image,
-    gpu="L4",
+    cpu=4.0,
+    memory=8192,
     volumes={"/root/.cache/huggingface": hf_cache},
     scaledown_window=300,
     timeout=600,
@@ -29,8 +30,8 @@ class Chatterbox:
     @modal.enter()
     def load_model(self):
         from chatterbox.mtl_tts import ChatterboxMultilingualTTS
-        self.model = ChatterboxMultilingualTTS.from_pretrained(device="cuda")
-        print("Chatterbox Multilingual loaded")
+        self.model = ChatterboxMultilingualTTS.from_pretrained(device="cpu")
+        print("Chatterbox Multilingual loaded on CPU")
 
     @modal.method()
     def generate(self, text: str, language: str = "ms", exaggeration: float = 0.7):
@@ -45,7 +46,7 @@ class Chatterbox:
         ta.save(buffer, wav, self.model.sr, format="wav")
         return base64.b64encode(buffer.getvalue()).decode("utf-8")
 
-@app.function(image=image, gpu="L4")
+@app.function(image=image, cpu=4.0, memory=8192)
 @modal.fastapi_endpoint(method="POST")
 def tts_endpoint(item: dict):
     text = item.get("text", "").strip()
