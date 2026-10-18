@@ -3,13 +3,13 @@ import uuid
 import time
 import threading
 from flask import Flask, request, jsonify, send_from_directory
-from chatterbox.tts import ChatterboxTTS
-import torchaudio as ta
 import torch
+import torchaudio as ta
 
 app = Flask(__name__)
 
 AUTHOR = "farel alfareza"
+AUDIO_EXPIRY_SECONDS = 3600
 
 VOICE_DIR = os.environ.get("VOICE_DIR", "/data/voice" if os.path.exists("/data") else "./voice")
 os.makedirs(VOICE_DIR, exist_ok=True)
@@ -19,12 +19,22 @@ VOICE_SAMPLES = {
     "male": os.environ.get("MALE_VOICE_PATH", "./voice_male.wav"),
 }
 
-AUDIO_EXPIRY_SECONDS = 3600
+# Model dimuat secara lazy
+_model = None
+_model_lock = threading.Lock()
+_device = "cuda" if torch.cuda.is_available() else "cpu"
 
-print("Loading Chatterbox model (CPU mode)...")
-device = "cuda" if torch.cuda.is_available() else "cpu"
-model = ChatterboxTTS.from_pretrained(device=device)
-print(f"Model loaded on {device}")
+
+def get_model():
+    global _model
+    if _model is None:
+        with _model_lock:
+            if _model is None:
+                print(f"[startup] Loading Chatterbox model on {_device}...", flush=True)
+                from chatterbox.tts import ChatterboxTTS
+                _model = ChatterboxTTS.from_pretrained(device=_device)
+                print("[startup] Model loaded successfully.", flush=True)
+    return _model
 
 
 def cleanup_expired_audio():
@@ -37,14 +47,15 @@ def cleanup_expired_audio():
                 filepath = os.path.join(VOICE_DIR, filename)
                 if now - os.path.getmtime(filepath) > AUDIO_EXPIRY_SECONDS:
                     os.remove(filepath)
-                    print(f"Cleaned expired audio: {filename}")
+                    print(f"[cleanup] Removed expired audio: {filename}", flush=True)
         except Exception as e:
-            print(f"Cleanup error: {e}")
+            print(f"[cleanup] Error: {e}", flush=True)
         time.sleep(300)
 
 
 cleanup_thread = threading.Thread(target=cleanup_expired_audio, daemon=True)
 cleanup_thread.start()
+print("[startup] Cleanup thread started.", flush=True)
 
 
 @app.route('/api', methods=['GET'])
@@ -75,6 +86,7 @@ def tts_api():
         }), 500
 
     try:
+        model = get_model()
         exaggeration = 0.8 if voice_type == 'female' else 0.6
 
         wav = model.generate(
@@ -98,6 +110,7 @@ def tts_api():
         })
 
     except Exception as e:
+        print(f"[api] Error: {e}", flush=True)
         return jsonify({
             "status": "error",
             "author": AUTHOR,
@@ -129,10 +142,12 @@ def health():
     return jsonify({
         "status": "ok",
         "author": AUTHOR,
-        "device": device
+        "device": _device,
+        "model_loaded": _model is not None
     })
 
 
 if __name__ == '__main__':
-    port = int(os.environ.get("PORT", 5000))
-    app.run(host='0.0.0.0', port=port)
+    port = int(os.environ.get("PORT", 8080))
+    print(f"[startup] Starting Flask on 0.0.0.0:{port}", flush=True)
+    app.run(host='0.0.0.0', port=port, threaded=True)

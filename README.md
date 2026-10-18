@@ -2,8 +2,6 @@
 
 API Text-to-Speech sederhana berbasis Flask dan Chatterbox TTS, mendukung suara pria dan wanita, dengan hasil audio otomatis dihapus setelah 1 jam.
 
-**Author:** farel alfareza
-
 ---
 
 ## Fitur
@@ -13,7 +11,7 @@ API Text-to-Speech sederhana berbasis Flask dan Chatterbox TTS, mendukung suara 
 - Suara dihasilkan dengan teknik voice cloning dari sampel `.wav` yang disiapkan
 - Ekspresi suara dapat diatur melalui parameter `exaggeration` (wanita lebih ekspresif, pria lebih stabil)
 - File audio otomatis dihapus setelah 1 jam (3600 detik) melalui thread pembersihan latar belakang
-- Response JSON menyertakan field `author` di setiap endpoint
+- Response JSON
 - Endpoint `/health` untuk pengecekan status layanan
 
 ---
