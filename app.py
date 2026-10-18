@@ -9,6 +9,9 @@ from huggingface_hub import hf_hub_download
 import onnxruntime as ort
 from ttstokenizer import IPATokenizer
 import json
+import nltk
+
+nltk.download('averaged_perceptron_tagger_eng', quiet=True)
 
 app = Flask(__name__)
 
@@ -37,6 +40,12 @@ with open(voices_path, "r", encoding="utf-8") as f:
     voices_data = json.load(f)
 
 session = ort.InferenceSession(model_path, providers=["CPUExecutionProvider"])
+
+try:
+    nltk.data.find('taggers/averaged_perceptron_tagger_eng')
+except LookupError:
+    nltk.download('averaged_perceptron_tagger_eng', quiet=True)
+
 tokenizer = IPATokenizer()
 print("[startup] ONNX session ready.", flush=True)
 
