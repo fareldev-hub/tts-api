@@ -9,7 +9,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 RUN mkdir -p models && \
     wget -O models/id_ID-news_tts-medium.onnx "https://huggingface.co/rhasspy/piper-voices/resolve/main/id/id_ID/news_tts/medium/id_ID-news_tts-medium.onnx" && \
-    wget -O models/id_ID-news_tts-medium.onnx.json "https://huggingface.co/rhasspy/piper-voices/resolve/main/id/id_ID/news_tts/medium/id_ID-news_tts-medium.onnx.json"
+    wget -O models/id_ID-news_tts-medium.onnx.json "https://huggingface.co/rhasspy/piper-voices/resolve/main/id/id_ID/news_tts/medium/id_ID-news_tts-medium.onnx.json" && \
+    wget -O models/id_ID-ardi-medium.onnx "https://huggingface.co/rhasspy/piper-voices/resolve/main/id/id_ID/ardi/medium/id_ID-ardi-medium.onnx" && \
+    wget -O models/id_ID-ardi-medium.onnx.json "https://huggingface.co/rhasspy/piper-voices/resolve/main/id/id_ID/ardi/medium/id_ID-ardi-medium.onnx.json"
 
 COPY . .
 

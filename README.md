@@ -1,18 +1,17 @@
-# Chatterbox TTS API
+# Zydra Voice
 
-API Text-to-Speech sederhana berbasis Flask dan Chatterbox TTS, mendukung suara pria dan wanita, dengan hasil audio otomatis dihapus setelah 1 jam.
+API Text-to-Speech sederhana berbasis Flask dan Piper TTS, mendukung suara pria dan wanita bahasa Indonesia, dengan UI web bawaan dan hasil audio otomatis dihapus setelah 1 jam.
 
 ---
 
 ## Fitur
 
 - Generate suara dari teks melalui endpoint `/api`
-- Mendukung dua tipe suara: `female` (wanita) dan `male` (pria)
-- Suara dihasilkan dengan teknik voice cloning dari sampel `.wav` yang disiapkan
-- Ekspresi suara dapat diatur melalui parameter `exaggeration` (wanita lebih ekspresif, pria lebih stabil)
+- Mendukung dua tipe suara: `female` (wanita) dan `male` (pria), masing-masing memakai model Piper yang berbeda
+- UI web sederhana di `/` untuk mencoba langsung dari browser
 - File audio otomatis dihapus setelah 1 jam (3600 detik) melalui thread pembersihan latar belakang
-- Response JSON
-- Endpoint `/health` untuk pengecekan status layanan
+- Response JSON menyertakan field `author`
+- Endpoint `/health` untuk pengecekan status layanan dan status model
 
 ---
 
@@ -23,8 +22,11 @@ API Text-to-Speech sederhana berbasis Flask dan Chatterbox TTS, mendukung suara 
 ├── app.py
 ├── requirements.txt
 ├── Dockerfile
-├── voice_female.wav   (sampel suara wanita, 10-30 detik)
-├── voice_male.wav     (sampel suara pria, 10-30 detik)
+├── models/
+│   ├── id_ID-news_tts-medium.onnx
+│   ├── id_ID-news_tts-medium.onnx.json
+│   ├── id_ID-ardi-medium.onnx
+│   └── id_ID-ardi-medium.onnx.json
 └── voice/             (direktori output, dibuat otomatis)
 ```
 
@@ -34,14 +36,17 @@ API Text-to-Speech sederhana berbasis Flask dan Chatterbox TTS, mendukung suara 
 
 | Variabel | Default | Keterangan |
 |---|---|---|
-| `VOICE_DIR` | `/data/voice` jika `/data` ada, selain itu `./voice` | Direktori penyimpanan file audio |
-| `FEMALE_VOICE_PATH` | `./voice_female.wav` | Path sampel suara wanita |
-| `MALE_VOICE_PATH` | `./voice_male.wav` | Path sampel suara pria |
-| `PORT` | `5000` (lokal), `8080` (Docker) | Port layanan |
+| `VOICE_DIR` | `./voice` | Direktori penyimpanan file audio hasil generate |
+| `MODEL_DIR` | `./models` | Direktori penyimpanan model Piper |
+| `PORT` | `8080` | Port layanan (di Railway diinjeksi otomatis) |
 
 ---
 
 ## Endpoint
+
+### `GET /`
+
+Menampilkan UI web sederhana untuk memasukkan teks, memilih suara pria/wanita, dan memutar hasil audio langsung di browser.
 
 ### `GET /api`
 
@@ -67,6 +72,7 @@ GET /api?type=female&text=Halo%20semua%2C%20apa%20kabar%3F
   "status": "success",
   "author": "farel alfareza",
   "type": "female",
+  "voice_used": "Wanita (id_ID-news_tts-medium)",
   "text": "Halo semua, apa kabar?",
   "voice_file": "/voice/3f2a1b9c8d7e4f6a.wav",
   "expires_in_seconds": 3600,
@@ -90,13 +96,17 @@ Mengunduh atau memutar file audio yang telah dihasilkan. Jika file sudah kedaluw
 
 ### `GET /health`
 
-Pengecekan status layanan.
+Pengecekan status layanan dan status model.
 
 ```json
 {
   "status": "ok",
   "author": "farel alfareza",
-  "device": "cpu"
+  "engine": "piper",
+  "models": {
+    "female": true,
+    "male": true
+  }
 }
 ```
 
@@ -104,47 +114,48 @@ Pengecekan status layanan.
 
 ## Instalasi Lokal (Windows / Linux)
 
-1. Pastikan Python 3.11 dan FFmpeg sudah terinstal.
+1. Pastikan Python 3.11 sudah terinstal.
 2. Buat virtual environment dan instal dependensi:
 
 ```bash
 pip install -r requirements.txt
-pip install torch torchaudio --index-url https://download.pytorch.org/whl/cpu
 ```
 
-3. Siapkan `voice_female.wav` dan `voice_male.wav` di direktori proyek.
+3. Unduh model Piper bahasa Indonesia ke direktori `models/`:
+
+```bash
+mkdir -p models
+wget -O models/id_ID-news_tts-medium.onnx "https://huggingface.co/rhasspy/piper-voices/resolve/main/id/id_ID/news_tts/medium/id_ID-news_tts-medium.onnx"
+wget -O models/id_ID-news_tts-medium.onnx.json "https://huggingface.co/rhasspy/piper-voices/resolve/main/id/id_ID/news_tts/medium/id_ID-news_tts-medium.onnx.json"
+wget -O models/id_ID-ardi-medium.onnx "https://huggingface.co/rhasspy/piper-voices/resolve/main/id/id_ID/ardi/medium/id_ID-ardi-medium.onnx"
+wget -O models/id_ID-ardi-medium.onnx.json "https://huggingface.co/rhasspy/piper-voices/resolve/main/id/id_ID/ardi/medium/id_ID-ardi-medium.onnx.json"
+```
+
 4. Jalankan:
 
 ```bash
 python app.py
 ```
 
-Layanan akan berjalan di `http://localhost:5000`.
+Layanan akan berjalan di `http://localhost:8080`. Buka browser ke alamat tersebut untuk melihat UI.
 
 ---
 
 ## Deployment ke Railway
 
-1. Push proyek ke GitHub (sertakan `voice_female.wav` dan `voice_male.wav`).
+1. Push proyek ke GitHub.
 2. Di Railway pilih **New Project → Deploy from GitHub repo**, pilih repository.
-3. Railway akan mendeteksi `Dockerfile` dan membangun image secara otomatis.
-4. Tambahkan **Volume** dan mount ke `/data` agar file audio tersimpan persisten.
-5. Atur environment variables:
-
-```
-VOICE_DIR=/data/voice
-FEMALE_VOICE_PATH=./voice_female.wav
-MALE_VOICE_PATH=./voice_male.wav
-```
-
-6. Di **Settings → Networking**, klik **Generate Domain** untuk mendapatkan URL publik.
+3. Railway akan mendeteksi `Dockerfile` dan membangun image secara otomatis. Model Piper diunduh saat build, sehingga tidak perlu di-commit ke Git.
+4. Jika ingin file audio tersimpan persisten, tambahkan **Volume** dan mount ke `/data`, lalu atur `VOICE_DIR=/data/voice`.
+5. Di **Settings → Networking**, klik **Generate Domain** untuk mendapatkan URL publik.
 
 ---
 
 ## Catatan Penting
 
-- **Chatterbox berjalan di CPU pada Railway**, sehingga proses generasi audio bisa memakan waktu beberapa detik hingga puluhan detik tergantung panjang teks. Untuk performa lebih baik, pertimbangkan menjalankan model di platform dengan GPU (misalnya Modal) dan menggunakan Railway hanya sebagai API layer.
-- **Pemilihan pria/wanita sepenuhnya bergantung pada file sampel** yang Anda berikan. Untuk hasil terbaik, gunakan rekaman bersih 10-30 detik tanpa noise latar belakang.
+- **Piper berjalan sepenuhnya di CPU**, dengan konsumsi memori rendah (di bawah 200 MB untuk dua model `medium`), sehingga cocok untuk paket gratis Railway.
+- **Suara pria dan wanita memakai model yang berbeda**: `id_ID-news_tts-medium` untuk wanita, `id_ID-ardi-medium` untuk pria. Jika salah satu model gagal diunduh saat build, periksa ketersediaannya di repositori `rhasspy/piper-voices`.
+- Kualitas suara Piper `medium` tergolong natural untuk ukurannya, tetapi tidak memiliki fitur cloning suara atau kontrol ekspresi seperti tertawa.
 - File audio disimpan di `VOICE_DIR` dan **otomatis dihapus setelah 1 jam** oleh thread pembersihan yang berjalan setiap 5 menit.
 - Jika Railway Volume tidak dipasang, file akan hilang setiap kali container restart.
 
@@ -156,9 +167,8 @@ By farel alfareza
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
 [![Python](https://img.shields.io/badge/Python-3.11-blue.svg)](https://www.python.org/)
 [![Flask](https://img.shields.io/badge/Flask-3.0-black.svg)](https://flask.palletsprojects.com/)
-[![Chatterbox TTS](https://img.shields.io/badge/Chatterbox-TTS-orange.svg)](https://github.com/resemble-ai/chatterbox)
+[![Piper TTS](https://img.shields.io/badge/Piper-TTS-green.svg)](https://github.com/rhasspy/piper)
 
 # Support
-
 
 [![Donate](https://img.shields.io/badge/Support-Saweria-orange?style=for-the-badge&logo=buymeacoffee&logoColor=white)](https://saweria.co/fareldev)
