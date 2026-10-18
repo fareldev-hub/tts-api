@@ -1,2 +1,8 @@
 flask
-requests
+onnxruntime
+librosa
+numpy
+soundfile
+tqdm
+tokenizers
+huggingface-hub

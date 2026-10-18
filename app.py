@@ -2,22 +2,21 @@ import os
 import uuid
 import time
 import threading
-import base64
-import requests
+import numpy as np
 from flask import Flask, request, jsonify, send_from_directory, render_template_string
+from chatterbox_onnx import ChatterboxOnnx
 
 app = Flask(__name__)
 
 AUTHOR = "farel alfareza"
-MODAL_URL = os.environ.get("MODAL_URL")
 AUDIO_EXPIRY_SECONDS = 3600
 VOICE_DIR = os.environ.get("VOICE_DIR", "./voice")
 os.makedirs(VOICE_DIR, exist_ok=True)
 
-VOICE_CONFIG = {
-    "female": {"language": "ms", "exaggeration": 0.8},
-    "male": {"language": "ms", "exaggeration": 0.5},
-}
+# Inisialisasi Chatterbox ONNX (kuantisasi Q4 untuk hemat memori)
+print("[startup] Initializing Chatterbox ONNX (quantized)...", flush=True)
+synthesizer = ChatterboxOnnx(quantized=True)
+print("[startup] Chatterbox ONNX ready.", flush=True)
 
 
 def cleanup_expired_audio():
@@ -37,6 +36,7 @@ def cleanup_expired_audio():
 
 
 threading.Thread(target=cleanup_expired_audio, daemon=True).start()
+print("[startup] Cleanup thread started.", flush=True)
 
 
 @app.route("/api", methods=["GET"])
@@ -46,27 +46,25 @@ def tts_api():
 
     if not text:
         return jsonify({"status": "error", "author": AUTHOR, "error": "Parameter text diperlukan"}), 400
-    if voice_type not in VOICE_CONFIG:
+    if voice_type not in ("female", "male"):
         return jsonify({"status": "error", "author": AUTHOR, "error": "type harus female atau male"}), 400
 
-    config = VOICE_CONFIG[voice_type]
+    filename = f"{uuid.uuid4().hex}.wav"
+    filepath = os.path.join(VOICE_DIR, filename)
 
     try:
-        resp = requests.post(
-            MODAL_URL,
-            json={"text": text, "language": config["language"], "exaggeration": config["exaggeration"]},
-            timeout=180
+        # Chatterbox ONNX mendukung voice cloning via target_voice_path.
+        # Jika Anda punya sampel suara pria/wanita, letakkan di folder ./voices/
+        # dan sesuaikan path di bawah. Untuk saat ini, gunakan suara default.
+        exaggeration = 0.8 if voice_type == "female" else 0.5
+
+        synthesizer.synthesize(
+            text=text,
+            target_voice_path=None,
+            exaggeration=exaggeration,
+            output_file_name=filepath,
+            apply_watermark=False,
         )
-        data = resp.json()
-
-        if "error" in data:
-            return jsonify({"status": "error", "author": AUTHOR, "error": data["error"]}), 500
-
-        audio_bytes = base64.b64decode(data["audio_base64"])
-        filename = f"{uuid.uuid4().hex}.wav"
-        filepath = os.path.join(VOICE_DIR, filename)
-        with open(filepath, "wb") as f:
-            f.write(audio_bytes)
 
         return jsonify({
             "status": "success",
@@ -75,9 +73,10 @@ def tts_api():
             "text": text,
             "voice_file": f"/voice/{filename}",
             "expires_in_seconds": AUDIO_EXPIRY_SECONDS,
-            "message": "Audio berhasil dibuat, otomatis dihapus setelah 1 jam"
+            "message": "Audio berhasil dibuat (Chatterbox ONNX), otomatis dihapus setelah 1 jam"
         })
     except Exception as e:
+        print(f"[api] Error: {e}", flush=True)
         return jsonify({"status": "error", "author": AUTHOR, "error": str(e)}), 500
 
 
@@ -94,7 +93,12 @@ def serve_voice(filename):
 
 @app.route("/health")
 def health():
-    return jsonify({"status": "ok", "author": AUTHOR, "engine": "chatterbox-modal"})
+    return jsonify({
+        "status": "ok",
+        "author": AUTHOR,
+        "engine": "chatterbox-onnx",
+        "quantized": True,
+    })
 
 
 UI_HTML = """
@@ -164,7 +168,7 @@ async function generate() {
     }
 
     status.className = 'status';
-    status.textContent = `Berhasil. File otomatis dihapus setelah 1 jam.`;
+    status.textContent = 'Berhasil. File otomatis dihapus setelah 1 jam.';
     const audio = document.createElement('audio');
     audio.controls = true;
     audio.src = data.voice_file;
@@ -197,4 +201,5 @@ def index():
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8080))
+    print(f"[startup] Flask on 0.0.0.0:{port}", flush=True)
     app.run(host="0.0.0.0", port=port, threaded=True)

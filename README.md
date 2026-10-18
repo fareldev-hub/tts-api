@@ -32,15 +32,6 @@ API Text-to-Speech sederhana berbasis Flask dan Piper TTS, mendukung suara pria 
 
 ---
 
-## Deploy
-
-```bash
-pip install modal
-modal setup
-modal deploy model.py
-```
----
-
 ## Endpoint
 
 ### `GET /`
