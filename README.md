@@ -32,14 +32,13 @@ API Text-to-Speech sederhana berbasis Flask dan Piper TTS, mendukung suara pria 
 
 ---
 
-## Environment Variables
+## Deploy
 
-| Variabel | Default | Keterangan |
-|---|---|---|
-| `VOICE_DIR` | `./voice` | Direktori penyimpanan file audio hasil generate |
-| `MODEL_DIR` | `./models` | Direktori penyimpanan model Piper |
-| `PORT` | `8080` | Port layanan (di Railway diinjeksi otomatis) |
-
+```bash
+pip install modal
+modal setup
+modal deploy modal_moss.py
+```
 ---
 
 ## Endpoint
