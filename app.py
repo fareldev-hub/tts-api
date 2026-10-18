@@ -5,6 +5,10 @@ import threading
 import numpy as np
 import soundfile as sf
 from flask import Flask, request, jsonify, send_from_directory
+from huggingface_hub import hf_hub_download
+import onnxruntime as ort
+from ttstokenizer import IPATokenizer
+import json
 
 app = Flask(__name__)
 
@@ -14,26 +18,41 @@ VOICE_DIR = os.environ.get("VOICE_DIR", "./voice")
 os.makedirs(VOICE_DIR, exist_ok=True)
 
 VOICE_MAP = {
-    "female": os.environ.get("FEMALE_VOICE", "af_heart"),
+    "female": os.environ.get("FEMALE_VOICE", "af_bella"),
     "male": os.environ.get("MALE_VOICE", "am_michael"),
 }
 
-print("[startup] Loading Kokoro pipeline...", flush=True)
-from kokoro import KPipeline
+print("[startup] Downloading Kokoro ONNX model...", flush=True)
+model_path = hf_hub_download(
+    repo_id="NeuML/kokoro-int8-onnx",
+    filename="model.onnx"
+)
+voices_path = hf_hub_download(
+    repo_id="NeuML/kokoro-int8-onnx",
+    filename="voices.json"
+)
+print("[startup] Model downloaded.", flush=True)
 
-pipeline = KPipeline(lang_code="a")
-print("[startup] Kokoro pipeline ready.", flush=True)
+with open(voices_path, "r", encoding="utf-8") as f:
+    voices_data = json.load(f)
+
+session = ort.InferenceSession(model_path, providers=["CPUExecutionProvider"])
+tokenizer = IPATokenizer()
+print("[startup] ONNX session ready.", flush=True)
 
 
 def synthesize(text, voice_name, speed=1.0):
-    generator = pipeline(text, voice=voice_name, speed=speed)
-    chunks = []
-    for _, _, audio in generator:
-        if audio is not None:
-            chunks.append(audio)
-    if chunks:
-        return np.concatenate(chunks)
-    return np.zeros(24000, dtype=np.float32)
+    inputs = tokenizer(text)
+    speaker_key = voice_name.split("_")[0]
+    speaker = np.array(voices_data[speaker_key], dtype=np.float32)
+    style = speaker[len(inputs)]
+
+    outputs = session.run(None, {
+        "tokens": [[0, *inputs, 0]],
+        "style": style,
+        "speed": np.ones(1, dtype=np.float32) * speed
+    })
+    return outputs[0]
 
 
 def cleanup_expired_audio():
@@ -106,7 +125,7 @@ def health():
     return jsonify({
         "status": "ok",
         "author": AUTHOR,
-        "engine": "kokoro",
+        "engine": "kokoro-onnx",
         "voices": VOICE_MAP
     })
 

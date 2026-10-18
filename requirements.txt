@@ -1,4 +1,6 @@
 flask
-kokoro
-soundfile
+onnxruntime
 numpy
+soundfile
+huggingface-hub
+ttstokenizer
