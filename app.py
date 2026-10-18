@@ -8,8 +8,8 @@ AUTHOR = "farel alfareza"
 MODAL_URL = os.environ.get("MODAL_URL")
 
 VOICE_CONFIG = {
-    "female": {"language": "Malay"},
-    "male": {"language": "Malay"},
+    "female": {"language": "ms", "exaggeration": 0.8},
+    "male": {"language": "ms", "exaggeration": 0.5},
 }
 
 @app.route("/api", methods=["GET"])
@@ -27,7 +27,7 @@ def tts_api():
     try:
         resp = requests.post(
             MODAL_URL,
-            json={"text": text, "language": config["language"]},
+            json={"text": text, "language": config["language"], "exaggeration": config["exaggeration"]},
             timeout=180
         )
         data = resp.json()
@@ -41,14 +41,14 @@ def tts_api():
             "type": voice_type,
             "text": text,
             "audio_base64": data["audio_base64"],
-            "message": "Audio berhasil dibuat (MOSS-TTS v1.5)"
+            "message": "Audio berhasil dibuat (Chatterbox Multilingual via Modal)"
         })
     except Exception as e:
         return jsonify({"status": "error", "author": AUTHOR, "error": str(e)}), 500
 
 @app.route("/health")
 def health():
-    return jsonify({"status": "ok", "author": AUTHOR, "engine": "moss-tts-modal"})
+    return jsonify({"status": "ok", "author": AUTHOR, "engine": "chatterbox-modal"})
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8080))
