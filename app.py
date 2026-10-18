@@ -19,24 +19,26 @@ VOICE_CONFIG = {
     "female": {
         "model": os.path.join(MODEL_DIR, "id_ID-news_tts-medium.onnx"),
         "config": os.path.join(MODEL_DIR, "id_ID-news_tts-medium.onnx.json"),
-        "label": "Wanita (id_ID-news_tts-medium)",
+        "label": "id_ID-news_tts-medium",
     },
     "male": {
-        "model": os.path.join(MODEL_DIR, "id_ID-ardi-medium.onnx"),
-        "config": os.path.join(MODEL_DIR, "id_ID-ardi-medium.onnx.json"),
-        "label": "Pria (id_ID-ardi-medium)",
+        "model": os.path.join(MODEL_DIR, "id_ID-news_tts-medium.onnx"),
+        "config": os.path.join(MODEL_DIR, "id_ID-news_tts-medium.onnx.json"),
+        "label": "id_ID-news_tts-medium",
     },
 }
 
 voices = {}
 
 for vtype, cfg in VOICE_CONFIG.items():
-    print(f"[startup] Loading Piper voice: {vtype}...", flush=True)
+    print(f"[startup] Loading Piper voice: {vtype} from {cfg['model']}", flush=True)
     try:
+        if not os.path.exists(cfg["model"]):
+            raise FileNotFoundError(f"Model tidak ditemukan: {cfg['model']}")
         voices[vtype] = PiperVoice.load(cfg["model"], config_path=cfg["config"])
-        print(f"[startup] Loaded {vtype}.", flush=True)
+        print(f"[startup] Loaded {vtype} OK.", flush=True)
     except Exception as e:
-        print(f"[startup] Failed to load {vtype}: {e}", flush=True)
+        print(f"[startup] FAILED to load {vtype}: {e}", flush=True)
         voices[vtype] = None
 
 
