@@ -11,7 +11,14 @@ from ttstokenizer import IPATokenizer
 import json
 import nltk
 
-nltk.download('averaged_perceptron_tagger_eng', quiet=True)
+for res in ("averaged_perceptron_tagger_eng", "averaged_perceptron_tagger"):
+    try:
+        nltk.data.find(f"taggers/{res}")
+    except LookupError:
+        try:
+            nltk.download(res, quiet=True)
+        except Exception as e:
+            print(f"[nltk] Failed to download {res}: {e}", flush=True)
 
 app = Flask(__name__)
 
@@ -40,12 +47,6 @@ with open(voices_path, "r", encoding="utf-8") as f:
     voices_data = json.load(f)
 
 session = ort.InferenceSession(model_path, providers=["CPUExecutionProvider"])
-
-try:
-    nltk.data.find('taggers/averaged_perceptron_tagger_eng')
-except LookupError:
-    nltk.download('averaged_perceptron_tagger_eng', quiet=True)
-
 tokenizer = IPATokenizer()
 print("[startup] ONNX session ready.", flush=True)
 
