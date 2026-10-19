@@ -2,7 +2,6 @@ import os
 import uuid
 import time
 import threading
-import numpy as np
 from flask import Flask, request, jsonify, send_from_directory, render_template_string
 from supertonic import TTS
 
@@ -22,6 +21,15 @@ VOICE_MAP = {
     "male": os.environ.get("MALE_VOICE", "M1"),
 }
 LANG = os.environ.get("TTS_LANG", "id")
+
+# Warm-up: paksa model siap sebelum menerima request
+try:
+    print("[startup] Warming up model...", flush=True)
+    style = tts.get_voice_style(voice_name="F1")
+    tts.synthesize("Halo", voice_style=style, lang=LANG)
+    print("[startup] Warm-up done.", flush=True)
+except Exception as e:
+    print(f"[startup] Warm-up failed: {e}", flush=True)
 
 
 def cleanup_expired_audio():
