@@ -4,7 +4,7 @@ import time
 import threading
 import numpy as np
 from flask import Flask, request, jsonify, send_from_directory, render_template_string
-from chatterbox_onnx import ChatterboxOnnx
+from supertonic import TTS
 
 app = Flask(__name__)
 
@@ -13,10 +13,15 @@ AUDIO_EXPIRY_SECONDS = 3600
 VOICE_DIR = os.environ.get("VOICE_DIR", "./voice")
 os.makedirs(VOICE_DIR, exist_ok=True)
 
-# Inisialisasi Chatterbox ONNX (kuantisasi Q4 untuk hemat memori)
-print("[startup] Initializing Chatterbox ONNX (quantized)...", flush=True)
-synthesizer = ChatterboxOnnx(quantized=True)
-print("[startup] Chatterbox ONNX ready.", flush=True)
+print("[startup] Loading Supertonic 3...", flush=True)
+tts = TTS(auto_download=True)
+print("[startup] Supertonic 3 ready.", flush=True)
+
+VOICE_MAP = {
+    "female": os.environ.get("FEMALE_VOICE", "F1"),
+    "male": os.environ.get("MALE_VOICE", "M1"),
+}
+LANG = os.environ.get("TTS_LANG", "id")
 
 
 def cleanup_expired_audio():
@@ -46,34 +51,29 @@ def tts_api():
 
     if not text:
         return jsonify({"status": "error", "author": AUTHOR, "error": "Parameter text diperlukan"}), 400
-    if voice_type not in ("female", "male"):
+    if voice_type not in VOICE_MAP:
         return jsonify({"status": "error", "author": AUTHOR, "error": "type harus female atau male"}), 400
 
-    filename = f"{uuid.uuid4().hex}.wav"
-    filepath = os.path.join(VOICE_DIR, filename)
+    voice_name = VOICE_MAP[voice_type]
 
     try:
-        # Chatterbox ONNX mendukung voice cloning via target_voice_path.
-        # Jika Anda punya sampel suara pria/wanita, letakkan di folder ./voices/
-        # dan sesuaikan path di bawah. Untuk saat ini, gunakan suara default.
-        exaggeration = 0.8 if voice_type == "female" else 0.5
+        style = tts.get_voice_style(voice_name=voice_name)
+        wav, duration = tts.synthesize(text, voice_style=style, lang=LANG)
 
-        synthesizer.synthesize(
-            text=text,
-            target_voice_path=None,
-            exaggeration=exaggeration,
-            output_file_name=filepath,
-            apply_watermark=False,
-        )
+        filename = f"{uuid.uuid4().hex}.wav"
+        filepath = os.path.join(VOICE_DIR, filename)
+        tts.save_audio(wav, filepath)
 
         return jsonify({
             "status": "success",
             "author": AUTHOR,
             "type": voice_type,
+            "voice_used": voice_name,
             "text": text,
             "voice_file": f"/voice/{filename}",
+            "duration_seconds": round(float(duration), 2),
             "expires_in_seconds": AUDIO_EXPIRY_SECONDS,
-            "message": "Audio berhasil dibuat (Chatterbox ONNX), otomatis dihapus setelah 1 jam"
+            "message": "Audio berhasil dibuat, otomatis dihapus setelah 1 jam"
         })
     except Exception as e:
         print(f"[api] Error: {e}", flush=True)
@@ -96,8 +96,9 @@ def health():
     return jsonify({
         "status": "ok",
         "author": AUTHOR,
-        "engine": "chatterbox-onnx",
-        "quantized": True,
+        "engine": "supertonic-3",
+        "lang": LANG,
+        "voices": VOICE_MAP
     })
 
 
@@ -156,7 +157,7 @@ async function generate() {
 
   btn.disabled = true;
   status.className = 'status';
-  status.textContent = 'Memproses... (mungkin butuh beberapa detik)';
+  status.textContent = 'Memproses...';
   player.innerHTML = '';
 
   try {
@@ -168,7 +169,7 @@ async function generate() {
     }
 
     status.className = 'status';
-    status.textContent = 'Berhasil. File otomatis dihapus setelah 1 jam.';
+    status.textContent = `Berhasil (${data.duration_seconds} detik). File otomatis dihapus setelah 1 jam.`;
     const audio = document.createElement('audio');
     audio.controls = true;
     audio.src = data.voice_file;
